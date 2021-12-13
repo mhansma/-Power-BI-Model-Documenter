@@ -1,16 +1,14 @@
 ﻿using System;
 using System.Diagnostics;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Documents;
 using Microsoft.AnalysisServices.Tabular;
 using Microsoft.Data.SqlClient;
+using System.Security.Cryptography;
+using System.Management;
 
 namespace Power_BI_Model_Documenter
 {
@@ -50,7 +48,7 @@ namespace Power_BI_Model_Documenter
 
             if (App.GetSetting("TargetDatabasePassword")?.Length > 0)
             {
-                DatabasePassword.Password = App.GetSetting("TargetDatabasePassword");
+                DatabasePassword.Password = Unprotect(App.GetSetting("TargetDatabasePassword"));
             }
 
             if (App.GetSetting("TargetDatabaseAuthenticateMethode")?.Length > 0)
@@ -209,7 +207,7 @@ namespace Power_BI_Model_Documenter
                             Log.ScrollToEnd();
                         }
                         reader.Close();
-                        
+
                         foreach (Column Column in Table.Columns)
                         {
                             if (Column.Type != ColumnType.RowNumber)
@@ -270,7 +268,7 @@ namespace Power_BI_Model_Documenter
                 Log.AppendText("Connecting SQL database" + Environment.NewLine);
                 Log.AppendText(" Server = " + DatabaseServer.Text + "; " + Environment.NewLine);
                 Log.AppendText(" Database = " + DatabaseName.Text + "; " + Environment.NewLine);
-            
+
                 SqlConnetionString = "";
 
                 if ("SQL Server Authenticate" == SqlAuthenticateMode)
@@ -284,7 +282,7 @@ namespace Power_BI_Model_Documenter
                     SqlConnetionString = @"Server=" + DatabaseServer.Text + "; Database=" + DatabaseName.Text + "; Authentication=Active Directory Interactive;";
                     Log.AppendText(" Authentication=Active Directory Interactive;" + Environment.NewLine);
                 }
-            
+
                 try
                 {
                     TargetSqlConnection = new SqlConnection(SqlConnetionString);
@@ -400,7 +398,7 @@ namespace Power_BI_Model_Documenter
         {
             if (DatabasePassword.Password != "aaaaa")
             {
-                App.SetSetting("TargetDatabasePassword", DatabasePassword.Password);
+                App.SetSetting("TargetDatabasePassword", Protect(DatabasePassword.Password));
             }
         }
 
@@ -424,6 +422,59 @@ namespace Power_BI_Model_Documenter
                     DatabaseUsername.Visibility = Visibility.Hidden;
                 }
             }
+        }
+
+        public string Protect(string str)
+        {
+            byte[] entropy = Encoding.ASCII.GetBytes(CID());
+            byte[] data = Encoding.ASCII.GetBytes(str);
+            string protectedData = Convert.ToBase64String(ProtectedData.Protect(data, entropy, DataProtectionScope.CurrentUser));
+            return protectedData;
+        }
+
+        public string Unprotect(string str)
+        {
+            if (IsBase64String(str))
+            {
+                try
+                {
+                    byte[] protectedData = Convert.FromBase64String(str);
+                    byte[] entropy = Encoding.ASCII.GetBytes(CID());
+                    string data = Encoding.ASCII.GetString(ProtectedData.Unprotect(protectedData, entropy, DataProtectionScope.CurrentUser));
+                    return data;
+                }
+                catch
+                {
+
+                }
+            }
+            return null;
+        }
+
+        public bool IsBase64String(string base64)
+        {
+            Span<byte> buffer = new Span<byte>(new byte[base64.Length]);
+            return Convert.TryFromBase64String(base64, buffer, out int bytesParsed);
+        }
+
+        private string CID()
+        {
+            ManagementObjectSearcher search = new ManagementObjectSearcher("SELECT SerialNumber FROM Win32_BaseBoard");
+            ManagementObjectCollection searchs = search.Get();
+            string serial = ""; string cpuid = "";
+            foreach (ManagementObject id in searchs)
+            {
+                serial = (string)id["SerialNumber"];
+            }
+
+            search = new ManagementObjectSearcher("Select ProcessorId From Win32_processor");
+            searchs = search.Get();
+            foreach (ManagementObject id in searchs)
+            {
+                cpuid = (string)id["ProcessorId"];
+            }
+
+            return serial + cpuid;
         }
     }
 }
