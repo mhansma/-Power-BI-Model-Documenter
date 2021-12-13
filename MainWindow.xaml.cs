@@ -67,94 +67,93 @@ namespace Power_BI_Model_Documenter
             Log.Text = "Pushing Model" + Environment.NewLine;
             await Task.Delay(1);
 
-            using (SqlConnection SqlConnection = GetSqlConnection())
+            SqlConnection SqlConnection = GetSqlConnection();
+            
+            if (SqlConnection == null || SqlConnection.State != System.Data.ConnectionState.Open)
             {
-                if (SqlConnection == null || SqlConnection.State != System.Data.ConnectionState.Open)
+                return;
+            }
+
+            SqlCommand = new SqlCommand("", SqlConnection);
+
+            using (Database PowerBiDatabase = GetPowerBiConnection())
+            {
+                if (PowerBiDatabase == null || !PowerBiDatabase.Server.Connected)
                 {
                     return;
                 }
 
-                SqlCommand = new SqlCommand("", SqlConnection);
-
-                using (Database PowerBiDatabase = GetPowerBiConnection())
+                if (ModelName.Text.ToLower() is "model" or "modelname")
                 {
-                    if (PowerBiDatabase == null || !PowerBiDatabase.Server.Connected)
+                    _ = MessageBox.Show("Please fill in a model name. This is the name the Power BI model is stored in the SQL Database.");
+                    return;
+                }
+
+                PowerBiDatabase.Model.Name = ModelName.Text;
+                Log.AppendText("Model: " + PowerBiDatabase.Model.Name + Environment.NewLine);
+                Log.ScrollToEnd();
+
+                SqlQuery = "[documentation].[AddDataset] @DatasetSchema = '" + ModelName.Text + "', " +
+                        "                             @DatasetName = '" + ModelName.Text + "'";
+                SqlCommand.CommandText = SqlQuery;
+                _ = await SqlCommand.ExecuteNonQueryAsync();
+
+                //Deactivate all dataset attributes.
+                SqlQuery = "[documentation].[DeactivateDataset] @DatasetSchema = '" + ModelName.Text + "'; ";
+                SqlCommand.CommandText = SqlQuery;
+                _ = await SqlCommand.ExecuteNonQueryAsync();
+
+                foreach (Microsoft.AnalysisServices.Tabular.Table Table in PowerBiDatabase.Model.Tables)
+                {
+                    if (!Table.IsPrivate && !Table.Name.StartsWith("LocalDateTable_"))
                     {
-                        return;
-                    }
+                        Log.AppendText("Table: " + Table.Name + Environment.NewLine);
+                        Log.ScrollToEnd();
 
-                    if (ModelName.Text.ToLower() is "model" or "modelname")
-                    {
-                        _ = MessageBox.Show("Please fill in a model name. This is the name the Power BI model is stored in the SQL Database.");
-                        return;
-                    }
+                        SqlQuery = "[documentation].[AddTable] @DatasetSchema = '" + ModelName.Text + "', " +
+                                "                           @TableName = '" + Table.Name + "', " +
+                                "                           @IsHidden = '" + Table.IsHidden.ToString() + "'";
+                        SqlCommand.CommandText = SqlQuery;
+                        _ = await SqlCommand.ExecuteNonQueryAsync();
 
-                    PowerBiDatabase.Model.Name = ModelName.Text;
-                    Log.AppendText("Model: " + PowerBiDatabase.Model.Name + Environment.NewLine);
-                    Log.ScrollToEnd();
-
-                    SqlQuery = "[documentation].[AddDataset] @DatasetSchema = '" + ModelName.Text + "', " +
-                            "                             @DatasetName = '" + ModelName.Text + "'";
-                    SqlCommand.CommandText = SqlQuery;
-                    _ = await SqlCommand.ExecuteNonQueryAsync();
-
-                    //Deactivate all dataset attributes.
-                    SqlQuery = "[documentation].[DeactivateDataset] @DatasetSchema = '" + ModelName.Text + "'; ";
-                    SqlCommand.CommandText = SqlQuery;
-                    _ = await SqlCommand.ExecuteNonQueryAsync();
-
-                    foreach (Microsoft.AnalysisServices.Tabular.Table Table in PowerBiDatabase.Model.Tables)
-                    {
-                        if (!Table.IsPrivate && !Table.Name.StartsWith("LocalDateTable_"))
+                        foreach (Column Column in Table.Columns)
                         {
-                            Log.AppendText("Table: " + Table.Name + Environment.NewLine);
-                            Log.ScrollToEnd();
-
-                            SqlQuery = "[documentation].[AddTable] @DatasetSchema = '" + ModelName.Text + "', " +
-                                    "                           @TableName = '" + Table.Name + "', " +
-                                    "                           @IsHidden = '" + Table.IsHidden.ToString() + "'";
-                            SqlCommand.CommandText = SqlQuery;
-                            _ = await SqlCommand.ExecuteNonQueryAsync();
-
-                            foreach (Column Column in Table.Columns)
+                            if (Column.Type != ColumnType.RowNumber)
                             {
-                                if (Column.Type != ColumnType.RowNumber)
-                                {
-                                    Log.AppendText("Column: " + Column.Name + Environment.NewLine);
-                                    Log.ScrollToEnd();
-
-                                    SqlQuery = "[documentation].[AddTableColumn] @DatasetSchema = '" + ModelName.Text + "', " +
-                                        "                                     @TableName = '" + Table.Name + "', " +
-                                        "                                     @ColumnName = '" + Column.Name + "', " +
-                                        "                                     @IsHidden = '" + Table.IsHidden.ToString() + "'";
-                                    SqlCommand.CommandText = SqlQuery;
-                                    _ = await SqlCommand.ExecuteNonQueryAsync();
-                                }
-                            }
-
-                            foreach (Measure Measure in Table.Measures)
-                            {
-                                Log.AppendText("Measure: " + Measure.Name + Environment.NewLine);
+                                Log.AppendText("Column: " + Column.Name + Environment.NewLine);
                                 Log.ScrollToEnd();
 
-                                SqlQuery = "[documentation].[AddTableMeasure] @DatasetSchema = '" + ModelName.Text + "', " +
-                                        "                                  @TableName = '" + Table.Name + "', " +
-                                        "                                  @MeasureName = '" + Measure.Name + "', " +
-                                        "                                  @Expression = '" + Measure.Expression.Replace("\'", "\'\'") + "', " +
-                                        "                                  @IsHidden = '" + Table.IsHidden.ToString() + "'";
+                                SqlQuery = "[documentation].[AddTableColumn] @DatasetSchema = '" + ModelName.Text + "', " +
+                                    "                                     @TableName = '" + Table.Name + "', " +
+                                    "                                     @ColumnName = '" + Column.Name + "', " +
+                                    "                                     @IsHidden = '" + Table.IsHidden.ToString() + "'";
                                 SqlCommand.CommandText = SqlQuery;
                                 _ = await SqlCommand.ExecuteNonQueryAsync();
                             }
                         }
+
+                        foreach (Measure Measure in Table.Measures)
+                        {
+                            Log.AppendText("Measure: " + Measure.Name + Environment.NewLine);
+                            Log.ScrollToEnd();
+
+                            SqlQuery = "[documentation].[AddTableMeasure] @DatasetSchema = '" + ModelName.Text + "', " +
+                                    "                                  @TableName = '" + Table.Name + "', " +
+                                    "                                  @MeasureName = '" + Measure.Name + "', " +
+                                    "                                  @Expression = '" + Measure.Expression.Replace("\'", "\'\'") + "', " +
+                                    "                                  @IsHidden = '" + Table.IsHidden.ToString() + "'";
+                            SqlCommand.CommandText = SqlQuery;
+                            _ = await SqlCommand.ExecuteNonQueryAsync();
+                        }
                     }
-                    _ = PowerBiDatabase.Model.SaveChanges();
-                    PowerBiDatabase.Server.Disconnect();
-                    Log.AppendText("Save model" + Environment.NewLine);
                 }
-                SqlConnection.Close();
-                Log.AppendText("Ready!" + Environment.NewLine);
-                Log.ScrollToEnd();
+                _ = PowerBiDatabase.Model.SaveChanges();
+                PowerBiDatabase.Server.Disconnect();
+                Log.AppendText("Save model" + Environment.NewLine);
             }
+            SqlConnection.Close();
+            Log.AppendText("Ready!" + Environment.NewLine);
+            Log.ScrollToEnd();
         }
 
         private async void PullModel_Click(object sender, RoutedEventArgs e)
@@ -165,100 +164,98 @@ namespace Power_BI_Model_Documenter
             Log.Text = "Pulling Descriptions";
             await Task.Delay(1);
 
-            using (SqlConnection SqlConnection = GetSqlConnection())
+            SqlConnection SqlConnection = GetSqlConnection();
+            if (SqlConnection == null || SqlConnection.State != System.Data.ConnectionState.Open)
             {
-                if (SqlConnection == null || SqlConnection.State != System.Data.ConnectionState.Open)
+                return;
+            }
+
+            SqlCommand = new SqlCommand("", SqlConnection);
+
+            using (Database PowerBiDatabase = GetPowerBiConnection())
+            {
+                if (PowerBiDatabase == null || !PowerBiDatabase.Server.Connected)
                 {
                     return;
                 }
 
-                SqlCommand = new SqlCommand("", SqlConnection);
-
-                using (Database PowerBiDatabase = GetPowerBiConnection())
+                if (ModelName.Text.ToLower() is "model" or "modelname")
                 {
-                    if (PowerBiDatabase == null || !PowerBiDatabase.Server.Connected)
-                    {
-                        return;
-                    }
+                    _ = MessageBox.Show("Please fill in a model name. This is the name the Power BI model is stored in the SQL Database.");
+                    return;
+                }
 
-                    if (ModelName.Text.ToLower() is "model" or "modelname")
-                    {
-                        _ = MessageBox.Show("Please fill in a model name. This is the name the Power BI model is stored in the SQL Database.");
-                        return;
-                    }
+                PowerBiDatabase.Model.Name = ModelName.Text;
+                Log.AppendText("Model: " + PowerBiDatabase.Model.Name + Environment.NewLine);
 
-                    PowerBiDatabase.Model.Name = ModelName.Text;
-                    Log.AppendText("Model: " + PowerBiDatabase.Model.Name + Environment.NewLine);
+                foreach (Microsoft.AnalysisServices.Tabular.Table Table in PowerBiDatabase.Model.Tables)
+                {
+                    Log.AppendText("Read Table: " + Table.Name + Environment.NewLine);
+                    Log.ScrollToEnd();
 
-                    foreach (Microsoft.AnalysisServices.Tabular.Table Table in PowerBiDatabase.Model.Tables)
+                    SqlQuery = "[documentation].[GetDefinition] @DatasetSchema = '" + ModelName.Text + "', " +
+                            "                                @TableName = '" + Table.Name + "'";
+                    SqlCommand.CommandText = SqlQuery;
+
+                    SqlDataReader reader = await SqlCommand.ExecuteReaderAsync();
+                    while (reader.Read())
                     {
-                        Log.AppendText("Read Table: " + Table.Name + Environment.NewLine);
+                        Table.Description = reader.GetString(0);
+                        Log.AppendText("  Write: " + Table.Description + Environment.NewLine);
                         Log.ScrollToEnd();
+                    }
+                    reader.Close();
 
-                        SqlQuery = "[documentation].[GetDefinition] @DatasetSchema = '" + ModelName.Text + "', " +
-                                "                                @TableName = '" + Table.Name + "'";
-                        SqlCommand.CommandText = SqlQuery;
-
-                        SqlDataReader reader = await SqlCommand.ExecuteReaderAsync();
-                        while (reader.Read())
+                    foreach (Column Column in Table.Columns)
+                    {
+                        if (Column.Type != ColumnType.RowNumber)
                         {
-                            Table.Description = reader.GetString(0);
-                            Log.AppendText("  Write: " + Table.Description + Environment.NewLine);
-                            Log.ScrollToEnd();
-                        }
-                        reader.Close();
-
-                        foreach (Column Column in Table.Columns)
-                        {
-                            if (Column.Type != ColumnType.RowNumber)
-                            {
-                                Log.AppendText("Read Column: " + Column.Name + Environment.NewLine);
-                                Log.ScrollToEnd();
-
-                                SqlQuery = "[documentation].[GetDefinition] @DatasetSchema = '" + ModelName.Text + "', " +
-                                        "                                @TableName = '" + Table.Name + "', " +
-                                        "                                @ColumnName = '" + Column.Name + "'";
-                                SqlCommand.CommandText = SqlQuery;
-
-                                reader = await SqlCommand.ExecuteReaderAsync();
-                                while (reader.Read())
-                                {
-                                    Column.Description = reader.GetString(0);
-                                    Log.AppendText("  Write: " + Column.Name + " (" + Column.Description + ")" + Environment.NewLine);
-                                    Log.ScrollToEnd();
-                                }
-                                reader.Close();
-                            }
-                        }
-
-                        foreach (Measure Measure in Table.Measures)
-                        {
-                            Log.AppendText("Read Measure: " + Measure.Name + Environment.NewLine);
+                            Log.AppendText("Read Column: " + Column.Name + Environment.NewLine);
                             Log.ScrollToEnd();
 
                             SqlQuery = "[documentation].[GetDefinition] @DatasetSchema = '" + ModelName.Text + "', " +
                                     "                                @TableName = '" + Table.Name + "', " +
-                                    "                                @MeasureName = '" + Measure.Name + "'";
+                                    "                                @ColumnName = '" + Column.Name + "'";
                             SqlCommand.CommandText = SqlQuery;
 
                             reader = await SqlCommand.ExecuteReaderAsync();
                             while (reader.Read())
                             {
-                                Measure.Description = reader.GetString(0);
-                                Log.AppendText("  Write: " + Measure.Name + " (" + Measure.Description + ")" + Environment.NewLine);
+                                Column.Description = reader.GetString(0);
+                                Log.AppendText("  Write: " + Column.Name + " (" + Column.Description + ")" + Environment.NewLine);
                                 Log.ScrollToEnd();
                             }
                             reader.Close();
                         }
                     }
-                    _ = PowerBiDatabase.Model.SaveChanges();
-                    PowerBiDatabase.Server.Disconnect();
-                    Log.AppendText("Save model" + Environment.NewLine);
+
+                    foreach (Measure Measure in Table.Measures)
+                    {
+                        Log.AppendText("Read Measure: " + Measure.Name + Environment.NewLine);
+                        Log.ScrollToEnd();
+
+                        SqlQuery = "[documentation].[GetDefinition] @DatasetSchema = '" + ModelName.Text + "', " +
+                                "                                @TableName = '" + Table.Name + "', " +
+                                "                                @MeasureName = '" + Measure.Name + "'";
+                        SqlCommand.CommandText = SqlQuery;
+
+                        reader = await SqlCommand.ExecuteReaderAsync();
+                        while (reader.Read())
+                        {
+                            Measure.Description = reader.GetString(0);
+                            Log.AppendText("  Write: " + Measure.Name + " (" + Measure.Description + ")" + Environment.NewLine);
+                            Log.ScrollToEnd();
+                        }
+                        reader.Close();
+                    }
                 }
-                SqlConnection.Close();
-                Log.AppendText("Ready!" + Environment.NewLine);
-                Log.ScrollToEnd();
+                _ = PowerBiDatabase.Model.SaveChanges();
+                PowerBiDatabase.Server.Disconnect();
+                Log.AppendText("Save model" + Environment.NewLine);
             }
+            SqlConnection.Close();
+            Log.AppendText("Ready!" + Environment.NewLine);
+            Log.ScrollToEnd();
         }
 
         private SqlConnection GetSqlConnection()
@@ -322,7 +319,7 @@ namespace Power_BI_Model_Documenter
 
                 try
                 {
-                    Server PowerBiServerConnection = new Server();
+                    Server PowerBiServerConnection = new();
                     PowerBiServerConnection.Connect(PowerBiServer);
                     TargetPowerBiConnection = PowerBiServerConnection.Databases.GetByName(PowerBiDatabase);
                     Log.AppendText("Connected to Power BI" + Environment.NewLine);
@@ -453,13 +450,13 @@ namespace Power_BI_Model_Documenter
 
         public bool IsBase64String(string base64)
         {
-            Span<byte> buffer = new Span<byte>(new byte[base64.Length]);
-            return Convert.TryFromBase64String(base64, buffer, out int bytesParsed);
+            Span<byte> buffer = new(new byte[base64.Length]);
+            return Convert.TryFromBase64String(base64, buffer, out _);
         }
 
         private string CID()
         {
-            ManagementObjectSearcher search = new ManagementObjectSearcher("SELECT SerialNumber FROM Win32_BaseBoard");
+            ManagementObjectSearcher search = new("SELECT SerialNumber FROM Win32_BaseBoard");
             ManagementObjectCollection searchs = search.Get();
             string serial = ""; string cpuid = "";
             foreach (ManagementObject id in searchs)
