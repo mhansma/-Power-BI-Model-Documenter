@@ -440,9 +440,10 @@ namespace Power_BI_Model_Documenter
                     string data = Encoding.ASCII.GetString(ProtectedData.Unprotect(protectedData, entropy, DataProtectionScope.CurrentUser));
                     return data;
                 }
-                catch
+                catch (Exception e)
                 {
-
+                    Log.AppendText("Can't decrypt password" + Environment.NewLine);
+                    Log.AppendText(e.Message + Environment.NewLine);
                 }
             }
             return null;
